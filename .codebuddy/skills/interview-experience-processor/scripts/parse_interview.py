@@ -473,6 +473,369 @@ def classify_entries(
     return classified
 
 
+# ============================================================
+# 面试内容分类提取与结构化重组
+# ============================================================
+
+# 面试问题知识领域分类规则
+# 每个分类包含：emoji 标识、关键词列表（按优先级排序，靠前的分类优先匹配）
+CATEGORY_RULES = [
+    {
+        'name': '项目经验',
+        'emoji': '📋',
+        'keywords': [
+            '项目', '业务', '上线', '用户量', '监控', '告警', '需求',
+            '难点', '挑战', '成果', '产出', '优化过', '你做了',
+            '实习', '工作', 'SaaS', '平台', '系统设计', '权限',
+            '封装', '复用', '组件库', '你们', '你负责', '架构设计',
+            '自我介绍', '介绍一下你',
+        ],
+    },
+    {
+        'name': 'React',
+        'emoji': '⚛️',
+        'keywords': [
+            'react', 'React', 'hooks', 'hook', 'useState', 'useEffect',
+            'useCallback', 'useMemo', 'useRef', 'useContext', 'useReducer',
+            'useLayoutEffect', 'redux', 'fiber', '虚拟dom', '虚拟DOM',
+            'jsx', 'JSX', 'diff算法', 'react-router', 'setState',
+            '合成事件', 'React事件', '组件通信', 'react生命周期',
+            'React 的状态', 'React的状态',
+        ],
+    },
+    {
+        'name': 'Vue',
+        'emoji': '🟢',
+        'keywords': [
+            'vue', 'Vue', 'vuex', 'pinia', 'v-model', 'vue-router',
+            '双向绑定', '双向数据绑定', '响应式原理', 'proxy', 'Proxy',
+            'defineProperty', 'computed', 'watch', 'nextTick', '$nextTick',
+            'vue生命周期', 'vue2', 'vue3', 'Vue2', 'Vue3',
+            '组件通信', 'keep-alive', 'setup',
+        ],
+    },
+    {
+        'name': '网络与安全',
+        'emoji': '🌐',
+        'keywords': [
+            'http', 'HTTP', 'https', 'HTTPS', 'tcp', 'TCP', 'udp', 'UDP',
+            '跨域', 'cors', 'CORS', 'cookie', 'Cookie', 'session',
+            'xss', 'XSS', 'csrf', 'CSRF', 'csp', 'CSP',
+            '状态码', '三次握手', '四次挥手', '缓存', '强缓存', '协商缓存',
+            'dns', 'DNS', '域名', 'url', 'URL', 'OSI',
+            'SSL', 'TLS', 'jwt', 'JWT', 'SSO', 'token',
+            '网络', '请求', 'ajax', 'Ajax', 'fetch',
+            '输入url', '输入URL', '浏览器输入',
+        ],
+    },
+    {
+        'name': '工程化',
+        'emoji': '📦',
+        'keywords': [
+            'webpack', 'Webpack', 'vite', 'Vite', 'rollup', 'Rollup',
+            'babel', 'Babel', 'eslint', 'ESLint', 'loader', 'plugin',
+            '打包', '构建', '编译', '热更新', 'HMR', 'tree-shaking',
+            '模块化', 'commonjs', 'CommonJS', 'ESM', 'es module',
+            'npm', 'yarn', 'pnpm', 'monorepo', 'CI/CD',
+            '性能优化', '懒加载', '代码分割', 'code splitting',
+        ],
+    },
+    {
+        'name': 'CSS/HTML',
+        'emoji': '🎨',
+        'keywords': [
+            'css', 'CSS', 'html', 'HTML', 'flex', 'Flex', 'grid', 'Grid',
+            'BFC', 'IFC', '盒模型', '重排', '重绘', 'reflow', 'repaint',
+            '居中', '布局', '定位', 'position', 'z-index',
+            '响应式', '自适应', 'rem', 'em', 'vw', 'vh',
+            '伪类', '伪元素', '选择器', '优先级', '权重',
+            '语义化', '标签', 'float', '浮动', '清除浮动',
+            'animation', '动画', 'transition', 'transform',
+        ],
+    },
+    {
+        'name': 'JavaScript 基础',
+        'emoji': '💻',
+        'keywords': [
+            '闭包', '原型', '原型链', 'this', 'bind', 'call', 'apply',
+            '作用域', '变量提升', '暂时性死区', 'let', 'const', 'var',
+            'promise', 'Promise', 'async', 'await', '事件循环',
+            '宏任务', '微任务', 'EventLoop', 'event loop',
+            '垃圾回收', '内存泄露', '内存泄漏', 'GC',
+            '深拷贝', '浅拷贝', '防抖', '节流', '柯里化',
+            'es6', 'ES6', '解构', '箭头函数', '模板字符串',
+            'Symbol', 'Map', 'Set', 'WeakMap', 'Proxy', 'Reflect',
+            '数据类型', '类型判断', 'typeof', 'instanceof',
+            '继承', 'class', 'new', '严格模式',
+        ],
+    },
+    {
+        'name': '数据结构与算法',
+        'emoji': '🗃️',
+        'keywords': [
+            '手撕', '算法', '排序', '链表', '二叉树', '栈', '队列',
+            '递归', '动态规划', 'dp', 'DP', '哈希', '数组',
+            '快排', '冒泡', '归并', '二分', '双指针',
+            '力扣', 'LeetCode', 'leetcode', 'lc', 'LC',
+            '编程题', '代码题', '时间复杂度', '空间复杂度',
+            'DFS', 'BFS', '回溯', '贪心',
+        ],
+    },
+    {
+        'name': '小程序/跨端',
+        'emoji': '📱',
+        'keywords': [
+            '小程序', '微信小程序', 'wx', 'setData', 'uni-app', 'uniapp',
+            'react native', 'ReactNative', 'flutter', 'Flutter',
+            '跨端', 'Hybrid', 'hybrid', 'H5', 'webview', 'WebView',
+            'electron', 'Electron', 'Taro', 'taro',
+        ],
+    },
+    {
+        'name': '浏览器原理',
+        'emoji': '🔍',
+        'keywords': [
+            '浏览器渲染', '渲染流程', '回流', '页面渲染',
+            '进程', '线程', 'V8', 'v8', '垃圾回收机制',
+            'service worker', 'Service Worker', 'web worker',
+            '浏览器缓存', '浏览器存储', 'localStorage', 'sessionStorage',
+            'IndexedDB', '多进程', '多线程',
+        ],
+    },
+    {
+        'name': '组件库/框架原理',
+        'emoji': '🔧',
+        'keywords': [
+            'AntD', 'antd', 'Ant Design', 'ProTable', 'ProForm',
+            'Form', 'Modal', 'Element', 'element-ui',
+            '源码', '底层', '底层原理', '实现原理',
+        ],
+    },
+    {
+        'name': '软技能/HR',
+        'emoji': '💬',
+        'keywords': [
+            '反问', '职业规划', '学习方式', '为什么', '优缺点',
+            '团队', '沟通', '加班', '薪资', '期望',
+            'HR', 'hr', '离职', '转行',
+        ],
+    },
+    {
+        'name': 'Git/工具',
+        'emoji': '🛠️',
+        'keywords': [
+            'git', 'Git', 'merge', 'rebase', 'cherry-pick',
+            'docker', 'Docker', 'linux', 'Linux', 'nginx', 'Nginx',
+            'Node', 'node', 'npm', 'koa', 'express', 'pm2',
+        ],
+    },
+]
+
+
+def extract_questions_from_content(content: str) -> tuple[list[str], list[str]]:
+    """
+    从面试内容中提取独立的面试问题和叙述性文本
+
+    核心逻辑：
+    1. 先对原始文本做预处理（编号拆分、emoji换行、轮次分段）
+    2. 然后逐行识别：问题 vs 叙述
+
+    Returns:
+        (questions: 问题列表, narratives: 叙述性文本列表)
+    """
+    # 先移除标签
+    clean = re.sub(r'#[^#\s]+?#', '', content).strip()
+
+    # ====== 预处理：将挤在一行的编号列表拆开 ======
+    # 在编号前插入换行（如 "xxx 1.aaa 2.bbb" → "xxx\n1.aaa\n2.bbb"）
+    clean = re.sub(r'(?<=\S)\s+(\d+[.、)）]\s*(?!\d))', r'\n\1', clean)
+    # 独立行首编号也确保换行
+    clean = re.sub(r'(\d+[.、)）])\s*(?!\d)', r'\n\1', clean)
+
+    # emoji 标记前换行
+    clean = re.sub(r'([📍🕐💻❓🙌⏰🕒🔹🔸▶️➡️⬇⭐])', r'\n\1', clean)
+
+    # 面试轮次关键词前换行
+    round_kw = r'一面|二面|三面|四面|五面|HR面|hr面|电话面|笔试|初面|复面|终面'
+    clean = re.sub(rf'(?<=\S)\s+((?:{round_kw})[\s(（:：·])', r'\n\1', clean)
+
+    # 按行分割
+    lines = clean.split('\n')
+    questions = []
+    narratives = []
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+
+        # 去掉编号前缀，提取纯问题文本
+        numbered_match = re.match(r'^(\d+)[.、)）]\s*(.*)', line)
+        if numbered_match:
+            q_text = numbered_match.group(2).strip()
+            if q_text and len(q_text) > 1:
+                questions.append(q_text)
+            continue
+
+        # 复选框行
+        if re.match(r'^\[[ Xx]\]', line):
+            q = re.sub(r'^\[[ Xx]\]\s*', '', line).strip()
+            if q:
+                questions.append(q)
+            continue
+
+        # 加粗的面试轮次标题 → 叙述
+        if re.match(r'^\*?\*?(?:一面|二面|三面|四面|五面|HR面|笔试|初面|复面|终面)', line):
+            # 如果轮次标题后还跟着实质内容，将内容部分作为叙述
+            narratives.append(line)
+            continue
+
+        # 含问号的行
+        if re.search(r'[？?]', line):
+            if len(line) < 200:
+                questions.append(line)
+            else:
+                # 长段落按问号边界拆分
+                sub_questions = _split_by_question_boundaries(line)
+                if len(sub_questions) > 1:
+                    questions.extend(sub_questions)
+                else:
+                    narratives.append(line)
+            continue
+
+        # 短行技术关键词列表（如 "闭包 原型链 this指向 作用域"）
+        if len(line) < 100 and _looks_like_question_list(line):
+            # 尝试按分隔符拆分
+            items = re.split(r'[/、，,]\s*|\s{2,}', line)
+            if len(items) > 2:
+                questions.extend([item.strip() for item in items if item.strip() and len(item.strip()) > 1])
+            else:
+                questions.append(line)
+            continue
+
+        # 其余内容作为叙述
+        narratives.append(line)
+
+    return questions, narratives
+
+
+def _looks_like_question_list(line: str) -> bool:
+    """判断一行是否看起来像是技术问题关键词列表"""
+    # 检查是否包含技术关键词
+    tech_keywords = [
+        '闭包', '原型', 'this', '跨域', '缓存', 'http', 'css', 'flex',
+        '盒模型', '布局', '排序', '算法', '手撕', '组件', 'hooks',
+        'promise', 'async', '事件', 'DOM', 'diff', '生命周期',
+        '作用域', '继承', '模块', 'webpack', '性能', '优化',
+        '重排', '重绘', 'BFC', '浮动', '定位',
+    ]
+    matches = sum(1 for kw in tech_keywords if kw.lower() in line.lower())
+    return matches >= 2
+
+
+def classify_question(question: str) -> str:
+    """
+    将单个问题按关键词匹配到最佳知识领域分类
+
+    Returns:
+        分类名称，无法匹配时返回 '其他'
+    """
+    text_lower = question.lower()
+    best_match = None
+    best_score = 0
+
+    for rule in CATEGORY_RULES:
+        score = 0
+        for keyword in rule['keywords']:
+            if keyword.lower() in text_lower:
+                score += 1
+        if score > best_score:
+            best_score = score
+            best_match = rule['name']
+
+    return best_match if best_match and best_score > 0 else '其他'
+
+
+def classify_and_restructure_content(content: str, tags: list[str] = None) -> str:
+    """
+    将面试内容提取问题并按知识领域分类，生成结构化 Markdown
+
+    Args:
+        content: 原始面试内容文本
+        tags: 面经标签列表
+
+    Returns:
+        结构化的 Markdown 文本
+    """
+    if not content or len(content.strip()) < 20:
+        return format_content(content)
+
+    # 提取标签
+    all_tags = re.findall(r'#[^#\s]+?#', content)
+    clean_content = re.sub(r'\s*#[^#\s]+?#', '', content).strip()
+
+    # 提取问题和叙述
+    questions, narratives = extract_questions_from_content(clean_content)
+
+    # 如果提取到的问题太少（< 3），说明内容不适合结构化，走原有格式化
+    if len(questions) < 3:
+        return format_content(content)
+
+    # 对问题进行分类
+    categorized = defaultdict(list)
+    for q in questions:
+        category = classify_question(q)
+        categorized[category].append(q)
+
+    # 生成结构化 Markdown
+    output_lines = []
+
+    # 叙述性内容（面试概要）放在最前面
+    filtered_narratives = []
+    for n in narratives:
+        n_stripped = n.strip()
+        # 过滤掉仅为标题重复的叙述
+        if n_stripped and len(n_stripped) > 5:
+            filtered_narratives.append(n_stripped)
+
+    if filtered_narratives:
+        for n in filtered_narratives:
+            output_lines.append(f'> {n}')
+        output_lines.append('')
+
+    # 按 CATEGORY_RULES 顺序输出分类（保持固定顺序，空分类跳过）
+    category_order = [rule['name'] for rule in CATEGORY_RULES]
+    # 追加 "其他" 分类
+    category_order.append('其他')
+
+    emoji_map = {rule['name']: rule['emoji'] for rule in CATEGORY_RULES}
+    emoji_map['其他'] = '📝'
+
+    for cat_name in category_order:
+        if cat_name not in categorized:
+            continue
+        items = categorized[cat_name]
+        if not items:
+            continue
+
+        emoji = emoji_map.get(cat_name, '📝')
+        output_lines.append(f'#### {emoji} {cat_name}')
+        for item in items:
+            # 清理问题文本（去掉开头多余的空格和标点）
+            item = re.sub(r'^[\s\-·•]+', '', item).strip()
+            if item:
+                output_lines.append(f'- {item}')
+        output_lines.append('')
+
+    # 附加标签
+    if all_tags:
+        unique_tags = list(dict.fromkeys(all_tags))
+        output_lines.append(' '.join(unique_tags))
+
+    result = '\n'.join(output_lines).strip()
+    return result
+
+
 def format_content(content: str) -> str:
     """
     格式化面经正文内容，使其更便于阅读
@@ -679,12 +1042,12 @@ def format_entry_markdown(entry: InterviewEntry) -> str:
         lines.append(f'| 标签 | {", ".join(entry.tags)} |')
     lines.append('')
 
-    # 正文内容（格式化处理）
+    # 正文内容（结构化分类处理）
     content = entry.content.strip()
     if content:
         lines.append('### 面试内容')
         lines.append('')
-        lines.append(format_content(content))
+        lines.append(classify_and_restructure_content(content, entry.tags))
     lines.append('')
 
     return '\n'.join(lines)
